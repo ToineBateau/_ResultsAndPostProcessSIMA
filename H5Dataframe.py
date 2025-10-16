@@ -96,15 +96,13 @@ class H5Dataframe():
             self.df = h5_data
         self.name = name
 
-    def selection(self, model = [], condition = [], analysis = [], output = [], time = []):
-        return self.df.sel(
-            {
-                'model':model,
-                'condition':condition,
-                'analysis':analysis,
-                'time':time
-            }
-        )
+    def selection(self, sel_dict):
+        new_ds = self.df.sel(sel_dict)
+        return H5Dataframe(new_ds, None, source = "XRDS")
+    
+    def merge(self, list_of_H5DF):
+        for H in list_of_H5DF:
+            self.df = self.df.combine_first(H.df)
     
     def skip_transient(self, T_trans):
         time = self.df.coords['time'].values
@@ -149,50 +147,50 @@ class H5Dataframe():
 # Tests
 #------------------------------------------
 
-import matplotlib.pyplot as plt
-filename = r'.\_ResultsH5\Baseline_\Baseline_KaimalTurbulence_Results.h5'
-keys_dict = {
-    'platform//Global total position//XGtranslationTotalmotion':'Surge [m]',
-    'platform//Global total position//YGtranslationTotalmotion':'Sway [m]',
-    'platform//Global total position//ZGtranslationTotalmotion':'Heave [m]',
-    'platform//Global total position//XLrotationTotalmotion':'Roll [deg]',
-}
-HDF5 = H5Dataframe(filename, keys_dict)
-print(HDF5.df.sel({
-    'analysis':'Dynamic',
-    'model':'INO_OptiFLEX22MW_Baseline'
-})['Surge [m]'].values[0])
-
-dict_coords = {
-    'analysis':'Dynamic',
-    'model':'INO_OptiFLEX22MW_Baseline'
-}
-print('IF WE SELECT : \n--------------------------')
-print(HDF5.df.sel(dict_coords))
-fig, ax = plt.subplots(2,2, figsize=(8, 4), dpi=100)
-HDF5.comparePlot_timeseries(
-    ax[0,0],
-    'condition',
-    dict_coords,
-    'Surge [m]'
-)
-
-print('SKIP TRANSIENT THING\n-----------------------------\n----------------------------')
-H2 = HDF5.skip_transient(900)
-print(H2.df)
-H2.comparePlot_timeseries(
-    ax[0,1],
-    'condition',
-    dict_coords,
-    'Surge [m]'
-)
-
-# plt.plot(HDF5.df.sel({
+# import matplotlib.pyplot as plt
+# filename = r'.\_ResultsH5\Baseline_\Baseline_KaimalTurbulence_Results.h5'
+# keys_dict = {
+#     'platform//Global total position//XGtranslationTotalmotion':'Surge [m]',
+#     'platform//Global total position//YGtranslationTotalmotion':'Sway [m]',
+#     'platform//Global total position//ZGtranslationTotalmotion':'Heave [m]',
+#     'platform//Global total position//XLrotationTotalmotion':'Roll [deg]',
+# }
+# HDF5 = H5Dataframe(filename, keys_dict)
+# print(HDF5.df.sel({
 #     'analysis':'Dynamic',
-#     'output':'Surge [m]',
 #     'model':'INO_OptiFLEX22MW_Baseline'
 # })['Surge [m]'].values[0])
 
-# print(HDF5.df.coords['condition'].values)
-fig.legend()
-plt.show()
+# dict_coords = {
+#     'analysis':'Dynamic',
+#     'model':'INO_OptiFLEX22MW_Baseline'
+# }
+# print('IF WE SELECT : \n--------------------------')
+# print(HDF5.df.sel(dict_coords))
+# fig, ax = plt.subplots(2,2, figsize=(8, 4), dpi=100)
+# HDF5.comparePlot_timeseries(
+#     ax[0,0],
+#     'condition',
+#     dict_coords,
+#     'Surge [m]'
+# )
+
+# print('SKIP TRANSIENT THING\n-----------------------------\n----------------------------')
+# H2 = HDF5.skip_transient(900)
+# print(H2.df)
+# H2.comparePlot_timeseries(
+#     ax[0,1],
+#     'condition',
+#     dict_coords,
+#     'Surge [m]'
+# )
+
+# # plt.plot(HDF5.df.sel({
+# #     'analysis':'Dynamic',
+# #     'output':'Surge [m]',
+# #     'model':'INO_OptiFLEX22MW_Baseline'
+# # })['Surge [m]'].values[0])
+
+# # print(HDF5.df.coords['condition'].values)
+# fig.legend()
+# plt.show()
