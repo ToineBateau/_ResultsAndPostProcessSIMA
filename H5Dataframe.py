@@ -46,7 +46,7 @@ def strip_H5_to_dataset(every_analysis_output_dict, end_list, last_lvl, lvl_h5_d
                     te = to + (N-1)*dt
                     time = np.arange(to,te+dt,dt)
                     ds = xr.DataArray(
-                        data = [[[series]]],
+                        data = [[[pd.Series(series)]]],
                         coords = {
                             'model':('model', [last_lvl[0]]),
                             'condition':('condition',[last_lvl[-1]]),
@@ -100,10 +100,24 @@ class H5Dataframe():
         new_ds = self.df.sel(sel_dict)
         return H5Dataframe(new_ds, None, source = "XRDS")
     
+    def extract_run(self, dict_coords):
+        run = self.df.sel(dict_coords).to_pandas()
+        print('\n----------Successfully extracted run to panda.Dataframe structure-----------\n')
+        print(run.head())
+        print(run.describe())
+        return run
+    
+    def extract_dataframe(self):
+        df = self.df.to_dataframe()
+        print('\n----------Successfully extracted all datas to panda.Dataframe structure-----------\n')
+        print(df.head())
+        print(df.describe())
+        return df
+
     def merge(self, list_of_H5DF):
         for H in list_of_H5DF:
             self.df = self.df.combine_first(H.df)
-    
+
     def skip_transient(self, T_trans):
         time = self.df.coords['time'].values
         t_idx = time>T_trans
@@ -114,8 +128,9 @@ class H5Dataframe():
 
     def timeserie(self, dict_coords, output):
         array = self.df.sel(dict_coords)[output]
-        serie = array.values
-        time = array.coords['time'].values
+        time = (array.coords['time'].values)
+        serie = pd.Series(data = array.values, name = output, index = time)
+        print(serie.describe())
         return time, serie
     
     def comparePlot_timeseries(self, ax, dim_in_legend,  dict_other_fixed_coord, output, legend_list=[], color_list=[]):
@@ -147,50 +162,68 @@ class H5Dataframe():
 # Tests
 #------------------------------------------
 
-# import matplotlib.pyplot as plt
-# filename = r'.\_ResultsH5\Baseline_\Baseline_KaimalTurbulence_Results.h5'
-# keys_dict = {
-#     'platform//Global total position//XGtranslationTotalmotion':'Surge [m]',
-#     'platform//Global total position//YGtranslationTotalmotion':'Sway [m]',
-#     'platform//Global total position//ZGtranslationTotalmotion':'Heave [m]',
-#     'platform//Global total position//XLrotationTotalmotion':'Roll [deg]',
-# }
-# HDF5 = H5Dataframe(filename, keys_dict)
-# print(HDF5.df.sel({
+import matplotlib.pyplot as plt
+filename = r'.\_ResultsH5\Baseline_\Baseline_KaimalTurbulence_Results.h5'
+keys_dict = {
+    'platform//Global total position//XGtranslationTotalmotion':'Surge [m]',
+    'platform//Global total position//YGtranslationTotalmotion':'Sway [m]',
+    'platform//Global total position//ZGtranslationTotalmotion':'Heave [m]',
+    'platform//Global total position//XLrotationTotalmotion':'Roll [deg]',
+}
+HDF5 = H5Dataframe(filename, keys_dict)
+print('IF WE EXTRACT SOME VALUES : \n--------------------------')
+print(HDF5.df.sel({
+    'analysis':'Dynamic',
+    'model':'INO_OptiFLEX22MW_Baseline'
+})['Surge [m]'].values[0])
+
+dict_coords = {
+    'analysis':'Dynamic',
+    'model':'INO_OptiFLEX22MW_Baseline'
+}
+print('IF WE SELECT : \n--------------------------')
+selected = HDF5.df.sel(dict_coords)
+print(selected)
+fig, ax = plt.subplots(2,2, figsize=(8, 4), dpi=100)
+HDF5.comparePlot_timeseries(
+    ax[0,0],
+    'condition',
+    dict_coords,
+    'Surge [m]'
+)
+print(('IF WE DESCRIBE STATISTICS : \n--------------------------'))
+selected = HDF5.df.sel({
+    'analysis':'Dynamic',
+    'model':'INO_OptiFLEX22MW_Baseline',
+    'condition':'Kaimal_TurbulentWindSet_1'
+})
+pd_df = selected.to_pandas()
+print(pd_df.describe())
+
+print('SKIP TRANSIENT THING\n-----------------------------\n----------------------------')
+H2 = HDF5.skip_transient(900)
+print(H2.df)
+H2.comparePlot_timeseries(
+    ax[0,1],
+    'condition',
+    dict_coords,
+    'Surge [m]'
+)
+
+# plt.plot(HDF5.df.sel({
 #     'analysis':'Dynamic',
+#     'output':'Surge [m]',
 #     'model':'INO_OptiFLEX22MW_Baseline'
 # })['Surge [m]'].values[0])
 
-# dict_coords = {
-#     'analysis':'Dynamic',
-#     'model':'INO_OptiFLEX22MW_Baseline'
-# }
-# print('IF WE SELECT : \n--------------------------')
-# print(HDF5.df.sel(dict_coords))
-# fig, ax = plt.subplots(2,2, figsize=(8, 4), dpi=100)
-# HDF5.comparePlot_timeseries(
-#     ax[0,0],
-#     'condition',
-#     dict_coords,
-#     'Surge [m]'
-# )
+run = HDF5.extract_run({
+    'analysis':'Dynamic',
+    'model':'INO_OptiFLEX22MW_Baseline',
+    'condition':'Kaimal_TurbulentWindSet_1'
+})
+print(run.head())
 
-# print('SKIP TRANSIENT THING\n-----------------------------\n----------------------------')
-# H2 = HDF5.skip_transient(900)
-# print(H2.df)
-# H2.comparePlot_timeseries(
-#     ax[0,1],
-#     'condition',
-#     dict_coords,
-#     'Surge [m]'
-# )
-
-# # plt.plot(HDF5.df.sel({
-# #     'analysis':'Dynamic',
-# #     'output':'Surge [m]',
-# #     'model':'INO_OptiFLEX22MW_Baseline'
-# # })['Surge [m]'].values[0])
-
-# # print(HDF5.df.coords['condition'].values)
-# fig.legend()
-# plt.show()
+df = HDF5.extract_dataframe()
+# print(HDF5.df.coords['condition'].values)
+fig.legend()
+plt.show()
