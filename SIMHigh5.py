@@ -132,13 +132,15 @@ class SIMHigh5():
         elif source == "xarray":
             self.df = h5_data
         self.name = name
+        self.models = self.df.coords['model'].values
+        self.conds = self.df.coords['condition'].values
 
     def selection(self, sel_dict):
         '''
         Return a new class instance whose dataset is a selection of the former regarding the conditions contained in the sel_dict dictionary 
         '''
         new_ds = self.df.sel(sel_dict)
-        return SIMHigh5(new_ds, None, source = "xarray")
+        return SIMHigh5(new_ds, None, source = "xarray", name = self.name)
     
     def extract_run(self, dict_coords, show = True):
         '''
@@ -176,8 +178,18 @@ class SIMHigh5():
         t_idx = time>T_trans
         time = time[t_idx]
         new_df = self.df.sel({'time': time})
-        print(new_df)
-        return SIMHigh5(new_df, None, source="xarray")
+        return SIMHigh5(new_df, None, source="xarray", name=self.name)
+    
+    def select_time_window(self, T_min, T_max):
+        '''
+        Returns a new class instance whose timeseries datas where chopped to match T_min < t < T_max.
+        '''
+        time = self.df.coords['time'].values
+        T_min,T_max = max(time[0],T_min), min(time[-1],T_max)
+        t_idx = np.logical_and(time>=T_min,time<=T_max)
+        time = time[t_idx]
+        new_df = self.df.sel({'time': time})
+        return SIMHigh5(new_df, None, source="xarray", name = self.name)
 
     def timeserie(self, dict_coords, output, show=True):
         '''
