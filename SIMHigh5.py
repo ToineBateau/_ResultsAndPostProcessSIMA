@@ -48,6 +48,7 @@ def strip_H5_to_dataset(every_analysis_output_dict, end_list, last_lvl, lvl_h5_d
         dict_coords['model'] = [last_lvl[0]] # model is always the 3rd last level we've been through in case of a condition Set/Space SIMA simulation
         dict_coords['condition'] = [last_lvl[-1]] # condition run name is always the upper level of the "data level"
         dict_coords['analysis'] = [] # We will get through the different analysis run
+        dict_coords['time'] = [] # The different timespans, that can be different among outputs, are stored for the final dataset
         for analysis in var_n_an_keys:
             dict_coords['analysis'] += [analysis] 
             for path, output in every_analysis_output_dict.items(): # Getting through the recquired variables we need
@@ -59,31 +60,79 @@ def strip_H5_to_dataset(every_analysis_output_dict, end_list, last_lvl, lvl_h5_d
                 else : 
                     series = lvl_h5_dataset[analysis][path]
                     # Constructing time from serie
-                    to = series.attrs['start'][()]
-                    dt = series.attrs['delta'][()]
+                    to = float(series.attrs['start'][()])
+                    dt = float(series.attrs['delta'][()])
                     N = len(series)
                     te = to + (N-1)*dt
-                    time = np.arange(to,te+dt,dt)
+                    time = np.arange(to, te+dt, dt)
+                    # Store raw numeric data (not pandas Series) so we can interpolate later
+                    vals = np.array(series[:], dtype=float)
                     # Constructing our data structure for one of the outputs
                     ds = xr.DataArray(
-                        name = output,
-                        data = [[[pd.Series(series)]]], # datas are transformed to pandas series
-                        coords = {
-                            'model':('model', [last_lvl[0]]),
-                            'condition':('condition',[last_lvl[-1]]),
-                            'analysis':('analysis', [analysis]),
-                            'time':('time', time)
+                        name=output,
+                        data=np.array([[[vals]]]),  # shape (model=1, condition=1, analysis=1, time=N)
+                        coords={
+                            'model': ('model', [last_lvl[0]]),
+                            'condition': ('condition', [last_lvl[-1]]),
+                            'analysis': ('analysis', [analysis]),
+                            'time': ('time', time)
                         },
-                        dims = ['model', 'condition', 'analysis', 'time'],
-                        attrs = metadata
+                        dims=['model', 'condition', 'analysis', 'time'],
+                        attrs=metadata
                     )
-                    dict_vars[output] = ds # Collecting newly created dataarray to our dataset dictionary
-                    dict_coords['time'] = time # Collecting the time, in case the different outputs are not stored with the same time basis 
+                    dict_vars[output] = ds  # Collecting newly created dataarray to our dataset dictionary
+                    dict_coords['time'] += [time]  # Collecting the time, in case the different outputs are not stored with the same time basis
+
+        # Build a common, finest time grid and linearly interpolate other series to this grid
+        # Determine finest dt among collected times
+        all_times = dict_coords['time']
+        if len(all_times) > 0:
+            min_dt = np.min([np.min(np.diff(t)) for t in all_times if len(t) > 1])
+            start = np.min([t[0] for t in all_times])
+            end = np.max([t[-1] for t in all_times])
+            # Create common time using finest dt
+            common_time = np.arange(start, end, min_dt)
+        else:
+            common_time = np.array([])
+
+        # Interpolate each DataArray onto common_time (linear). For values outside original range, use nearest fill (ffill/bfill).
+        for key, da in dict_vars.items():
+            orig_time = da.coords['time'].values
+            orig_vals = da.values.reshape(-1, orig_time.size)[0]
+            if common_time.size == 0:
+                # nothing to do
+                interp_vals = orig_vals
+                new_time = orig_time
+            else:
+                # Use numpy.interp for reliable float-index interpolation and better performance.
+                # np.interp performs linear interpolation and accepts float arrays.
+                # For values outside the original range, set to nearest original value (left/right).
+                # Ensure orig_time and orig_vals are 1D numpy arrays
+                t0 = np.asarray(orig_time, dtype=float)
+                v0 = np.asarray(orig_vals, dtype=float)
+                # np.interp requires x to be increasing; orig_time should already be increasing.
+                interp_vals = np.interp(common_time, t0, v0, left=v0[0], right=v0[-1])
+                new_time = common_time
+
+            # Replace DataArray data and time coord
+            new_da = xr.DataArray(
+                name=da.name,
+                data=np.array([[[interp_vals]]]),
+                coords={
+                    'model': ('model', [last_lvl[0]]),
+                    'condition': ('condition', [last_lvl[-1]]),
+                    'analysis': ('analysis', [da.coords['analysis'].values[0]]),
+                    'time': ('time', new_time)
+                },
+                dims=['model', 'condition', 'analysis', 'time'],
+                attrs=da.attrs
+            )
+            dict_vars[key] = new_da
 
         # Constructing a xarray.Dataset from the different output xarray.DataArray we collected
         dset = xr.Dataset(
-            data_vars = dict_vars,
-            coords = dict_coords,
+            data_vars=dict_vars,
+            coords={'model': dict_coords['model'], 'condition': dict_coords['condition'], 'analysis': dict_coords['analysis'], 'time': common_time},
             attrs=metadata
         )
         # Returning the dataset
