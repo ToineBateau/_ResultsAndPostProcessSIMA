@@ -7,7 +7,13 @@ from analysis_tools import *
 
 # import functions
 #------------------------------------------
-
+def ensure_list(ds,coord):
+    val = ds.coords[coord].values
+    if isinstance(val, list):
+        return val
+    else:
+        return [str(val)]
+    
 def drop_constant_vars(ds: xr.Dataset) -> xr.Dataset:
     varying_vars = [
         var for var in ds.data_vars
@@ -191,6 +197,30 @@ def dataset_from_h5(h5_file, keys_dict):
 
     return final,metadata
 
+def xr_selection(df, sel_dict):
+    """
+    Safely select data from an xarray Dataset using sel_dict.
+    Only applies selection if keys exist in df.indexes.
+    
+    Parameters:
+        df (xr.Dataset): The dataset.
+        sel_dict (dict): Dictionary of coordinates to select.
+    
+    Returns:
+        (bool, xr.Dataset or None): (True, selected dataset) if selection applied,
+                                    (False, None) otherwise.
+    """
+    # Get valid keys from indexes (iterable coordinates)
+    valid_keys = set(df.indexes.keys())
+    
+    # Filter selection dictionary
+    filtered_sel = {k: v for k, v in sel_dict.items() if k in valid_keys}
+    
+    if filtered_sel:
+        return True, df.sel(filtered_sel)
+    else:
+        return False, None
+
 ##########################################
 # Begin CLASS
 ##########################################
@@ -214,16 +244,10 @@ class SIMHigh5():
             self.df = h5_data
             self.metadata = metadata
         self.name = name
-        try:
-            iter(self.df.coords['model'].values)
-            self.models = self.df.coords['model'].values
-        except TypeError:
-            self.models = [self.df.coords['model'].values]
-        try:
-            iter(self.df.coords['condition'].values)
-            self.conds = self.df.coords['condition'].values
-        except TypeError:
-            self.conds = [self.df.coords['condition'].values]
+
+        self.models = ensure_list(self.df, 'model')
+        self.conds = ensure_list(self.df, 'condition')
+
         self.varying_metadata = drop_constant_vars(self.metadata)
 
         if not silent:
@@ -240,8 +264,12 @@ class SIMHigh5():
         '''
         Return a new class instance whose dataset is a selection of the former regarding the conditions contained in the sel_dict dictionary 
         '''
-        new_ds = self.df.sel(sel_dict)
-        return SIMHigh5(new_ds, None, source = "xarray", name = self.name, metadata=self.metadata)
+        flag, new_ds = xr_selection(self.df, sel_dict)
+        if flag :    
+            return SIMHigh5(new_ds, None, source = "xarray", name = self.name, metadata=self.metadata)
+        else:
+            print('!!!!!! Overselection : aborting selection !!!!!!')
+            return self
     
     def extract_run(self, dict_coords, show = True):
         '''
@@ -288,11 +316,12 @@ class SIMHigh5():
         new_df = self.df.sel({'time': time})
         return SIMHigh5(new_df, None, source="xarray", name = self.name, metadata=self.metadata)
 
-    def timeserie(self, dict_coords, output, show=True):
+    def timeserie(self, sel_dict, output, show=True):
         '''
         Returns tuple (time, serie) from a given output and coordinates.
         '''
-        array = self.df.sel(dict_coords)[output]
+        new = self.selection(sel_dict)
+        array = new.df[output]
         time = (array.coords['time'].values)
         serie = pd.Series(data = array.values, name = output, index = time)
         if show:
@@ -337,7 +366,7 @@ def merge_simh5(list_of_H5DF):
         df_merged = xr.merge([H.df for H in list_of_H5DF], join= 'outer', compat='no_conflicts', combine_attrs='drop')
         metadata_merged = xr.merge([H.metadata for H in list_of_H5DF], join= 'outer', compat='no_conflicts', combine_attrs='drop')
         
-        return SIMHigh5(df_merged, None, source='xarray', metadata=metadata_merged)
+        return SIMHigh5(df_merged, None, source='xarray', metadata=metadata_merged, silent=False)
 ##########################################
 # End
 ##########################################
