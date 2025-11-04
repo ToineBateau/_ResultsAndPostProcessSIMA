@@ -8,25 +8,12 @@ import re
 
 # import functions
 #------------------------------------------
-
-def parse_variables(da):
-    '''Takes a dataarray and parses its 'variables' string coordinates to return a dictionary'''
-    var = da['variables'].values[0]
-    # Regex to extract key-value pairs
-    pairs = re.findall(r"\{([^:]+):([^}]+)\}", var)
-
-    res_dictionary = {}
-    for key, value in pairs:
-        # Remove any leading b' and trailing quotes for byte-like strings
-        value = value.strip()
-        if value.startswith("b'") and value.endswith("'"):
-            value = value[2:-1]
-        # Convert to float if possible
-        try:
-            res_dictionary[key] = float(value)
-        except ValueError:
-            res_dictionary[key] = value
-    return(res_dictionary)
+def drop_constant_vars(ds: xr.Dataset) -> xr.Dataset:
+    varying_vars = [
+        var for var in ds.data_vars
+        if np.unique(ds[var].values).size > 1
+    ]
+    return ds[varying_vars]
 
 def strip_H5_to_dataset(every_analysis_output_dict, end_list, last_lvl, lvl_h5_dataset):
     '''
