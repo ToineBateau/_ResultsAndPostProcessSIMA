@@ -3,11 +3,11 @@ import numpy as np
 import pandas as pd
 import h5py
 from analysis_tools import *
-import re
 
 
 # import functions
 #------------------------------------------
+
 def drop_constant_vars(ds: xr.Dataset) -> xr.Dataset:
     varying_vars = [
         var for var in ds.data_vars
@@ -198,7 +198,7 @@ def dataset_from_h5(h5_file, keys_dict):
 
 class SIMHigh5():
     # Initializing the class can be done by a filename, a xarray dataset or a class instance
-    def __init__(self, h5_data, keys_dict, source = "file", name="NewDataset", metadata=None):
+    def __init__(self, h5_data, keys_dict, source = "file", name="NewDataset", metadata=None, silent = True):
         '''
         SIMHigh5 is an xarray wrapper for SIMA run data loaded under h5 format. 
         Main feature is every-SIMA_workflow adaptative load function that can delve recursively into every h5 SIMA datafile and returns it into easier and understandable format.
@@ -214,18 +214,27 @@ class SIMHigh5():
             self.df = h5_data
             self.metadata = metadata
         self.name = name
-        self.models = self.df.coords['model'].values
-        self.conds = self.df.coords['condition'].values
+        try:
+            iter(self.df.coords['model'].values)
+            self.models = self.df.coords['model'].values
+        except TypeError:
+            self.models = [self.df.coords['model'].values]
+        try:
+            iter(self.df.coords['condition'].values)
+            self.conds = self.df.coords['condition'].values
+        except TypeError:
+            self.conds = [self.df.coords['condition'].values]
         self.varying_metadata = drop_constant_vars(self.metadata)
 
-        print('==============================\n SUCCESS IMPORTING DATASET ')
-        print('------------------------------\n THIS IS THE IMPORTED DATASET')
-        print(self.df)
-        print('***************************\n THIS IS THE METADATA DATASET')
-        print(self.metadata)
-        print('+++++++++++++++++++++++++++\n THIS IS THE VARYING METADATA')
-        print(self.varying_metadata)
-        print('-------------------------------\n ****** SUCCESS ******\n==============================')
+        if not silent:
+            print('==============================\n SUCCESS IMPORTING DATASET ')
+            print('------------------------------\n THIS IS THE IMPORTED DATASET')
+            print(self.df)
+            print('***************************\n THIS IS THE METADATA DATASET')
+            print(self.metadata)
+            print('+++++++++++++++++++++++++++\n THIS IS THE VARYING METADATA')
+            print(self.varying_metadata)
+            print('-------------------------------\n ****** SUCCESS ******\n==============================')
 
     def selection(self, sel_dict):
         '''
