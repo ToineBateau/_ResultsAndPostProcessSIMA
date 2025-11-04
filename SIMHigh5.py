@@ -189,12 +189,6 @@ def dataset_from_h5(h5_file, keys_dict):
     metadata = xr.merge(attrs_list, join= 'outer', compat='no_conflicts')
     final = xr.merge(end_list, join= 'outer', compat='no_conflicts', combine_attrs='drop') # Merging of all the dataset collected with strip_H5_to_dataset() function
 
-    print('==============================\n SUCCESS IMPORTING DATASET ')
-    print('------------------------------\n THIS IS THE IMPORTED DATASET')
-    print(final)
-    print(print('***************************\n THIS IS THE METADATA DATASET'))
-    print(metadata)
-    print('-------------------------------\n ****** SUCCESS ******\n==============================')
     return final,metadata
 
 ##########################################
@@ -224,12 +218,21 @@ class SIMHigh5():
         self.conds = self.df.coords['condition'].values
         self.varying_metadata = drop_constant_vars(self.metadata)
 
+        print('==============================\n SUCCESS IMPORTING DATASET ')
+        print('------------------------------\n THIS IS THE IMPORTED DATASET')
+        print(self.df)
+        print('***************************\n THIS IS THE METADATA DATASET')
+        print(self.metadata)
+        print('+++++++++++++++++++++++++++\n THIS IS THE VARYING METADATA')
+        print(self.varying_metadata)
+        print('-------------------------------\n ****** SUCCESS ******\n==============================')
+
     def selection(self, sel_dict):
         '''
         Return a new class instance whose dataset is a selection of the former regarding the conditions contained in the sel_dict dictionary 
         '''
         new_ds = self.df.sel(sel_dict)
-        return SIMHigh5(new_ds, None, source = "xarray", name = self.name)
+        return SIMHigh5(new_ds, None, source = "xarray", name = self.name, metadata=self.metadata)
     
     def extract_run(self, dict_coords, show = True):
         '''
@@ -240,8 +243,7 @@ class SIMHigh5():
             'model':dict_coords['model'],
             'condition':dict_coords['condition']
         }
-        var = self.metadata.sel(var_dict_coords)
-        print('---------\nSELECTED VAR\n',var)
+        var = self.varying_metadata.sel(var_dict_coords)
         run = run.to_pandas()
         if show:
             print('\n----------Successfully extracted run to panda.Dataframe structure-----------\n')
@@ -256,14 +258,6 @@ class SIMHigh5():
             print(pd_dataframe.describe())
         return pd_dataframe
 
-    def merge(self, list_of_H5DF):
-        '''
-        Merges the dataset in the list to the original dataset. Returns None.
-        '''
-        for H in list_of_H5DF:
-            self.df = self.df.combine_first(H.df)
-        return None
-
     def skip_transient(self, T_trans):
         '''
         Returns a new class instance whose timeseries datas where chopped to match t > T_trans.
@@ -272,7 +266,7 @@ class SIMHigh5():
         t_idx = time>T_trans
         time = time[t_idx]
         new_df = self.df.sel({'time': time})
-        return SIMHigh5(new_df, None, source="xarray", name=self.name)
+        return SIMHigh5(new_df, None, source="xarray", name=self.name, metadata=self.metadata)
     
     def select_time_window(self, T_min, T_max):
         '''
@@ -283,7 +277,7 @@ class SIMHigh5():
         t_idx = np.logical_and(time>=T_min,time<=T_max)
         time = time[t_idx]
         new_df = self.df.sel({'time': time})
-        return SIMHigh5(new_df, None, source="xarray", name = self.name)
+        return SIMHigh5(new_df, None, source="xarray", name = self.name, metadata=self.metadata)
 
     def timeserie(self, dict_coords, output, show=True):
         '''
@@ -327,6 +321,14 @@ class SIMHigh5():
         ax.set_xlabel('Time (s)')
         return None
     
+def merge_simh5(list_of_H5DF):
+        '''
+        Merges simh5 datasets. Returns a new class instance with merged dataset for the data and the metadata.
+        '''
+        df_merged = xr.merge([H.df for H in list_of_H5DF], join= 'outer', compat='no_conflicts', combine_attrs='drop')
+        metadata_merged = xr.merge([H.metadata for H in list_of_H5DF], join= 'outer', compat='no_conflicts', combine_attrs='drop')
+        
+        return SIMHigh5(df_merged, None, source='xarray', metadata=metadata_merged)
 ##########################################
 # End
 ##########################################
