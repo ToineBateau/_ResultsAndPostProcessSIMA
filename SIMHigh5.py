@@ -9,8 +9,8 @@ from analysis_tools import *
 #------------------------------------------
 def ensure_list(ds,coord):
     val = ds.coords[coord].values
-    if isinstance(val, list):
-        return val
+    if val.size > 1:
+        return list(val)
     else:
         return [str(val)]
     
