@@ -7,6 +7,33 @@ from analysis_tools import *
 # import functions
 #------------------------------------------
 
+def custom_merge(list_of_xrDataset):
+    data_vars = {}
+    dict_coords = {
+        'model':[],
+        'condition':[],
+        'analysis':[],
+        'time':[]
+    }
+    for dsi in list_of_xrDataset:
+        if not(dsi is None):
+            data_vars.extend(dsi.data_vars)
+            for key, item in dsi.coords.items():
+                print('\n=================\nKey is :', key)
+                print('-----------------\nLes coords initiales : \n', dsi.coords)
+                print('-----------------\nL\'item : \n', item.values)
+                print('-----------------')
+                dict_coords[key] = list(set(dict_coords[key]+list(item.values))) # removing duplicates with the list(set()) trick
+                if key != 'time':
+                    print('-----------------\nLa liste de coords updated : \n', dict_coords[key])
+            print(dsi)
+    coords = {'model': dict_coords['model'], 'condition': dict_coords['condition'], 'analysis': dict_coords['analysis'], 'time': dict_coords['time']}
+    ds = xr.Dataset(
+        data_vars=data_vars,
+        coords=coords
+    )
+    return ds
+
 def strip_H5_to_dataset(every_analysis_output_dict, end_list, last_lvl, lvl_h5_dataset):
     '''
     Get recursively the structure and data of an exported .h5 SIMA simulation file, and put it nicely in a xarray structure with dimensions [model, condition, analysis, time].
@@ -39,8 +66,11 @@ def strip_H5_to_dataset(every_analysis_output_dict, end_list, last_lvl, lvl_h5_d
         metadata = lvl_h5_dataset["Variables"] # The variables of the SIMA condition run are stored as metadata in the data structure we will be using
         # Putting the metadata in a dictionary format
         attrs = {}
+        variables_chain = ""
         for key,item in metadata.items():
-            attrs[key] = item[()]
+            var = item[()]
+            attrs[key] = var
+            variables_chain += '{'+str(key)+':'+str(var)+'}'
         metadata = attrs
         var_n_an_keys.remove('Variables')
         dict_vars = {} # Dictionnary collecting data in the form of xarray.DataArray
@@ -48,6 +78,7 @@ def strip_H5_to_dataset(every_analysis_output_dict, end_list, last_lvl, lvl_h5_d
         dict_coords['model'] = [last_lvl[0]] # model is always the 3rd last level we've been through in case of a condition Set/Space SIMA simulation
         dict_coords['condition'] = [last_lvl[-1]] # condition run name is always the upper level of the "data level"
         dict_coords['analysis'] = [] # We will get through the different analysis run
+        dict_coords['variables'] = [variables_chain] # TODO
         dict_coords['time'] = [] # The different timespans, that can be different among outputs, are stored for the final dataset
         for analysis in var_n_an_keys:
             dict_coords['analysis'] += [analysis] 
@@ -70,14 +101,15 @@ def strip_H5_to_dataset(every_analysis_output_dict, end_list, last_lvl, lvl_h5_d
                     # Constructing our data structure for one of the outputs
                     ds = xr.DataArray(
                         name=output,
-                        data=np.array([[[vals]]]),  # shape (model=1, condition=1, analysis=1, time=N)
+                        data=np.array([[[[vals]]]]),  # shape (model=1, condition=1, analysis=1, time=N)
                         coords={
                             'model': ('model', [last_lvl[0]]),
                             'condition': ('condition', [last_lvl[-1]]),
                             'analysis': ('analysis', [analysis]),
+                            'variables': ('variables', [variables_chain]),
                             'time': ('time', time)
                         },
-                        dims=['model', 'condition', 'analysis', 'time'],
+                        dims=['model', 'condition', 'analysis', 'variables', 'time'],
                         attrs=metadata
                     )
                     dict_vars[output] = ds  # Collecting newly created dataarray to our dataset dictionary
@@ -117,14 +149,15 @@ def strip_H5_to_dataset(every_analysis_output_dict, end_list, last_lvl, lvl_h5_d
             # Replace DataArray data and time coord
             new_da = xr.DataArray(
                 name=da.name,
-                data=np.array([[[interp_vals]]]),
+                data=np.array([[[[interp_vals]]]]),
                 coords={
                     'model': ('model', [last_lvl[0]]),
                     'condition': ('condition', [last_lvl[-1]]),
                     'analysis': ('analysis', [da.coords['analysis'].values[0]]),
+                    'variables': ('variables', [da.coords['variables'].values[0]]),
                     'time': ('time', new_time)
                 },
-                dims=['model', 'condition', 'analysis', 'time'],
+                dims=['model', 'condition', 'analysis', 'variables', 'time'],
                 attrs=da.attrs
             )
             dict_vars[key] = new_da
@@ -132,8 +165,7 @@ def strip_H5_to_dataset(every_analysis_output_dict, end_list, last_lvl, lvl_h5_d
         # Constructing a xarray.Dataset from the different output xarray.DataArray we collected
         dset = xr.Dataset(
             data_vars=dict_vars,
-            coords={'model': dict_coords['model'], 'condition': dict_coords['condition'], 'analysis': dict_coords['analysis'], 'time': common_time},
-            attrs=metadata
+            coords={'model': dict_coords['model'], 'condition': dict_coords['condition'], 'analysis': dict_coords['analysis'], 'variables': dict_coords['variables'], 'time': common_time}
         )
         # Returning the dataset
         return(dset)
@@ -150,9 +182,10 @@ def dataset_from_h5(h5_file, keys_dict):
     strip_H5_to_dataset(keys_dict,end_list, lvls, h5_dataset)
 
     final = end_list[0]
-
     for ds in end_list[1:]:
-        final = final.combine_first(ds) # Merging of all the dataset collected with strip_H5_to_dataset() function
+        if not(ds is None):
+            final = final.combine_first(ds) # Merging of all the dataset collected with strip_H5_to_dataset() function
+
 
     print('==============================\n SUCCESS IMPORTING DATASET ')
     print('------------------------------\n THIS IS THE IMPORTED DATASET')
@@ -173,7 +206,7 @@ class SIMHigh5():
         Main feature is every-SIMA_workflow adaptative load function that can delve recursively into every h5 SIMA datafile and returns it into easier and understandable format.
         It comes with numerous methods to process the data.
         '''
-        self.dims = ['model', 'condition', 'analysis', 'time']
+        self.dims = ['model', 'condition', 'analysis', 'variables', 'time']
         if source == "file":
             self.df = dataset_from_h5(h5_data, keys_dict)
         elif source == "SIMHigh5":
@@ -196,7 +229,7 @@ class SIMHigh5():
         Returns a panda DataFrame and the metadata dict of a SIMA run, according to the dict_coords {model: mmmmm , condition:ccccc, analysis: aaaaa} triplet.
         '''
         run = self.df.sel(dict_coords)
-        var = run.attrs
+        var = run[list(run.data_vars)[0]].attrs
         run = run.to_pandas()
         if show:
             print('\n----------Successfully extracted run to panda.Dataframe structure-----------\n')
@@ -289,4 +322,41 @@ class SIMHigh5():
 
 # Tests
 #------------------------------------------
+load_list = [
+    r'.\_ResultsH5\Results_Irregular.h5'
+]
 
+dynamic_keys = {
+                'platform//Global total position//XGtranslationTotalmotion':'Surge [m]',
+                'platform//Global total position//YGtranslationTotalmotion':'Sway [m]',
+                'platform//Global total position//ZGtranslationTotalmotion':'Heave [m]',
+                'platform//Global total position//XLrotationTotalmotion':'Roll [deg]',
+                'platform//Global total position//YLrotationTotalmotion':'Pitch [deg]',
+                'platform//Global total position//ZGrotationTotalmotion':'Yaw [deg]',
+                # 'line1//segment_1//node_1//Displacement in x - direction':'Xfairlead1 [m]',
+                # 'line1//segment_1//node_1//Displacement in y - direction':'Yfairlead1 [m]',
+                # 'line1//segment_1//node_1//Displacement in z - direction':'Zfairlead1 [m]',
+                # 'Origo/Wave elevation/Totalwaveelevation':'Elevation [m]',
+                # 'nacelle/Wind velocity/Velocityinmaindirection':'WindVelocity [m/s]',
+                # 'turbine/Rotor speed (rpm)':'RotorSpeed [rpm]',
+                'tower//segment_1//element_1//Mom_ about local y-axis, end 1':'ForeAftBendingMoment [Nm]',
+                # 'turbine/Incoming wind speed X-dir in shaft system':'WindVelocity [m/s]',
+                }
+
+H1 = SIMHigh5(load_list[0],dynamic_keys, source="file")
+
+# Test on the attrs
+print(H1.df.attrs)
+
+print()
+
+dict_coords = {'model':'INO_OptiFLEX22MW_Baseline', 'condition':'IrregularAnalysis_3', 'analysis':'Dynamic'}
+h = H1.df.sel(dict_coords)
+print(
+    h.attrs
+)
+
+print()
+
+run, var = H1.extract_run(dict_coords)
+print(var)
