@@ -159,20 +159,43 @@ def dataset_from_h5(h5_file, keys_dict):
     strip_H5_to_dataset(keys_dict,end_list, lvls, h5_dataset)
 
     end_list = [ds for ds in end_list if ds is not None]
-
-    attrs_coords = {}
-    attrs_val = {}
+    attrs_list = []
     for ds in end_list:
+        # name = attrs_coords['model'][0] + '_' + attrs_coords['condition'][0]
+        attrs_dict = {}
+        attrs_coords = {
+        'model':[],
+        'condition':[]
+        }
+        coords_da = {}
+        # n_analysis = len(list(ds.coords['analysis'].values))
+        for key, coord in ds.coords.items():
+            if (key not in ['time', 'analysis']):
+                attrs_coords[key] = attrs_coords[key] + list(coord.values)
+                coords_da[key] = list(coord.values)
+        for key, val in ds.attrs.items(): 
+            attrs_dict[key] = xr.DataArray(
+                    data = [[val]],
+                    coords=coords_da,
+                    dims=['model', 'condition']
+            )
+        attrs_list.append(
+            xr.Dataset(
+                data_vars=attrs_dict,
+                coords=attrs_coords
+            )
+        )
         
-    
-    final = xr.merge(end_list, join= 'outer', compat='no_conflicts', combine_attrs='drop_conflicts') # Merging of all the dataset collected with strip_H5_to_dataset() function
-
+    metadata = xr.merge(attrs_list, join= 'outer', compat='no_conflicts')
+    final = xr.merge(end_list, join= 'outer', compat='no_conflicts', combine_attrs='drop') # Merging of all the dataset collected with strip_H5_to_dataset() function
 
     print('==============================\n SUCCESS IMPORTING DATASET ')
     print('------------------------------\n THIS IS THE IMPORTED DATASET')
     print(final)
-    print('-------------------------------\n SUCCESS IMPORTING AND MERGING DATASET \n-------------------------------')
-    return final
+    print(print('***************************\n THIS IS THE METADATA DATASET'))
+    print(metadata)
+    print('-------------------------------\n ****** SUCCESS ******\n==============================')
+    return final,metadata
 
 ##########################################
 # Begin CLASS
@@ -181,7 +204,7 @@ def dataset_from_h5(h5_file, keys_dict):
 
 class SIMHigh5():
     # Initializing the class can be done by a filename, a xarray dataset or a class instance
-    def __init__(self, h5_data, keys_dict, source = "file", name="NewDataset"):
+    def __init__(self, h5_data, keys_dict, source = "file", name="NewDataset", metadata=None):
         '''
         SIMHigh5 is an xarray wrapper for SIMA run data loaded under h5 format. 
         Main feature is every-SIMA_workflow adaptative load function that can delve recursively into every h5 SIMA datafile and returns it into easier and understandable format.
@@ -189,15 +212,17 @@ class SIMHigh5():
         '''
         self.dims = ['model', 'condition', 'analysis', 'variables', 'time']
         if source == "file":
-            self.df = dataset_from_h5(h5_data, keys_dict)
+            self.df, self.metadata = dataset_from_h5(h5_data, keys_dict)
         elif source == "SIMHigh5":
             self.df = h5_data.df
+            self.metadata = h5_data.metadata
         elif source == "xarray":
             self.df = h5_data
+            self.metadata = metadata
         self.name = name
         self.models = self.df.coords['model'].values
         self.conds = self.df.coords['condition'].values
-        self.metadata = {}
+        self.varying_metadata = drop_constant_vars(self.metadata)
 
     def selection(self, sel_dict):
         '''
@@ -211,7 +236,12 @@ class SIMHigh5():
         Returns a panda DataFrame and the metadata dict of a SIMA run, according to the dict_coords {model: mmmmm , condition:ccccc, analysis: aaaaa} triplet.
         '''
         run = self.df.sel(dict_coords)
-        var = parse_variables(run[list(run.data_vars)[0]])
+        var_dict_coords = {
+            'model':dict_coords['model'],
+            'condition':dict_coords['condition']
+        }
+        var = self.metadata.sel(var_dict_coords)
+        print('---------\nSELECTED VAR\n',var)
         run = run.to_pandas()
         if show:
             print('\n----------Successfully extracted run to panda.Dataframe structure-----------\n')
@@ -304,41 +334,3 @@ class SIMHigh5():
 
 # Tests
 #------------------------------------------
-load_list = [
-    r'.\_ResultsH5\Results_Irregular.h5'
-]
-
-dynamic_keys = {
-                'platform//Global total position//XGtranslationTotalmotion':'Surge [m]',
-                'platform//Global total position//YGtranslationTotalmotion':'Sway [m]',
-                'platform//Global total position//ZGtranslationTotalmotion':'Heave [m]',
-                'platform//Global total position//XLrotationTotalmotion':'Roll [deg]',
-                'platform//Global total position//YLrotationTotalmotion':'Pitch [deg]',
-                'platform//Global total position//ZGrotationTotalmotion':'Yaw [deg]',
-                # 'line1//segment_1//node_1//Displacement in x - direction':'Xfairlead1 [m]',
-                # 'line1//segment_1//node_1//Displacement in y - direction':'Yfairlead1 [m]',
-                # 'line1//segment_1//node_1//Displacement in z - direction':'Zfairlead1 [m]',
-                # 'Origo/Wave elevation/Totalwaveelevation':'Elevation [m]',
-                # 'nacelle/Wind velocity/Velocityinmaindirection':'WindVelocity [m/s]',
-                # 'turbine/Rotor speed (rpm)':'RotorSpeed [rpm]',
-                'tower//segment_1//element_1//Mom_ about local y-axis, end 1':'ForeAftBendingMoment [Nm]',
-                # 'turbine/Incoming wind speed X-dir in shaft system':'WindVelocity [m/s]',
-                }
-
-H1 = SIMHigh5(load_list[0],dynamic_keys, source="file")
-
-# Test on the attrs
-print(H1.df.attrs)
-
-print()
-
-dict_coords = {'model':'INO_OptiFLEX22MW_Baseline', 'condition':'IrregularAnalysis_3', 'analysis':'Dynamic'}
-h = H1.df.sel(dict_coords)
-print(
-    h.attrs
-)
-
-print()
-
-run, var = H1.extract_run(dict_coords)
-print(var)
