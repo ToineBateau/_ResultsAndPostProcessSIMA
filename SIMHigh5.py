@@ -3,36 +3,30 @@ import numpy as np
 import pandas as pd
 import h5py
 from analysis_tools import *
+import re
+
 
 # import functions
 #------------------------------------------
 
-def custom_merge(list_of_xrDataset):
-    data_vars = {}
-    dict_coords = {
-        'model':[],
-        'condition':[],
-        'analysis':[],
-        'time':[]
-    }
-    for dsi in list_of_xrDataset:
-        if not(dsi is None):
-            data_vars.extend(dsi.data_vars)
-            for key, item in dsi.coords.items():
-                print('\n=================\nKey is :', key)
-                print('-----------------\nLes coords initiales : \n', dsi.coords)
-                print('-----------------\nL\'item : \n', item.values)
-                print('-----------------')
-                dict_coords[key] = list(set(dict_coords[key]+list(item.values))) # removing duplicates with the list(set()) trick
-                if key != 'time':
-                    print('-----------------\nLa liste de coords updated : \n', dict_coords[key])
-            print(dsi)
-    coords = {'model': dict_coords['model'], 'condition': dict_coords['condition'], 'analysis': dict_coords['analysis'], 'time': dict_coords['time']}
-    ds = xr.Dataset(
-        data_vars=data_vars,
-        coords=coords
-    )
-    return ds
+def parse_variables(da):
+    '''Takes a dataarray and parses its 'variables' string coordinates to return a dictionary'''
+    var = da['variables'].values[0]
+    # Regex to extract key-value pairs
+    pairs = re.findall(r"\{([^:]+):([^}]+)\}", var)
+
+    res_dictionary = {}
+    for key, value in pairs:
+        # Remove any leading b' and trailing quotes for byte-like strings
+        value = value.strip()
+        if value.startswith("b'") and value.endswith("'"):
+            value = value[2:-1]
+        # Convert to float if possible
+        try:
+            res_dictionary[key] = float(value)
+        except ValueError:
+            res_dictionary[key] = value
+    return(res_dictionary)
 
 def strip_H5_to_dataset(every_analysis_output_dict, end_list, last_lvl, lvl_h5_dataset):
     '''
@@ -66,11 +60,9 @@ def strip_H5_to_dataset(every_analysis_output_dict, end_list, last_lvl, lvl_h5_d
         metadata = lvl_h5_dataset["Variables"] # The variables of the SIMA condition run are stored as metadata in the data structure we will be using
         # Putting the metadata in a dictionary format
         attrs = {}
-        variables_chain = ""
         for key,item in metadata.items():
             var = item[()]
             attrs[key] = var
-            variables_chain += '{'+str(key)+':'+str(var)+'}'
         metadata = attrs
         var_n_an_keys.remove('Variables')
         dict_vars = {} # Dictionnary collecting data in the form of xarray.DataArray
@@ -78,7 +70,6 @@ def strip_H5_to_dataset(every_analysis_output_dict, end_list, last_lvl, lvl_h5_d
         dict_coords['model'] = [last_lvl[0]] # model is always the 3rd last level we've been through in case of a condition Set/Space SIMA simulation
         dict_coords['condition'] = [last_lvl[-1]] # condition run name is always the upper level of the "data level"
         dict_coords['analysis'] = [] # We will get through the different analysis run
-        dict_coords['variables'] = [variables_chain] # TODO
         dict_coords['time'] = [] # The different timespans, that can be different among outputs, are stored for the final dataset
         for analysis in var_n_an_keys:
             dict_coords['analysis'] += [analysis] 
@@ -101,15 +92,14 @@ def strip_H5_to_dataset(every_analysis_output_dict, end_list, last_lvl, lvl_h5_d
                     # Constructing our data structure for one of the outputs
                     ds = xr.DataArray(
                         name=output,
-                        data=np.array([[[[vals]]]]),  # shape (model=1, condition=1, analysis=1, time=N)
+                        data=np.array([[[vals]]]),  # shape (model=1, condition=1, analysis=1, time=N)
                         coords={
                             'model': ('model', [last_lvl[0]]),
                             'condition': ('condition', [last_lvl[-1]]),
                             'analysis': ('analysis', [analysis]),
-                            'variables': ('variables', [variables_chain]),
                             'time': ('time', time)
                         },
-                        dims=['model', 'condition', 'analysis', 'variables', 'time'],
+                        dims=['model', 'condition', 'analysis',  'time'],
                         attrs=metadata
                     )
                     dict_vars[output] = ds  # Collecting newly created dataarray to our dataset dictionary
@@ -149,15 +139,14 @@ def strip_H5_to_dataset(every_analysis_output_dict, end_list, last_lvl, lvl_h5_d
             # Replace DataArray data and time coord
             new_da = xr.DataArray(
                 name=da.name,
-                data=np.array([[[[interp_vals]]]]),
+                data=np.array([[[interp_vals]]]),
                 coords={
                     'model': ('model', [last_lvl[0]]),
                     'condition': ('condition', [last_lvl[-1]]),
                     'analysis': ('analysis', [da.coords['analysis'].values[0]]),
-                    'variables': ('variables', [da.coords['variables'].values[0]]),
                     'time': ('time', new_time)
                 },
-                dims=['model', 'condition', 'analysis', 'variables', 'time'],
+                dims=['model', 'condition', 'analysis', 'time'],
                 attrs=da.attrs
             )
             dict_vars[key] = new_da
@@ -165,7 +154,8 @@ def strip_H5_to_dataset(every_analysis_output_dict, end_list, last_lvl, lvl_h5_d
         # Constructing a xarray.Dataset from the different output xarray.DataArray we collected
         dset = xr.Dataset(
             data_vars=dict_vars,
-            coords={'model': dict_coords['model'], 'condition': dict_coords['condition'], 'analysis': dict_coords['analysis'], 'variables': dict_coords['variables'], 'time': common_time}
+            coords={'model': dict_coords['model'], 'condition': dict_coords['condition'], 'analysis': dict_coords['analysis'], 'time': common_time},
+            attrs = metadata
         )
         # Returning the dataset
         return(dset)
@@ -181,10 +171,14 @@ def dataset_from_h5(h5_file, keys_dict):
 
     strip_H5_to_dataset(keys_dict,end_list, lvls, h5_dataset)
 
-    final = end_list[0]
-    for ds in end_list[1:]:
-        if not(ds is None):
-            final = final.combine_first(ds) # Merging of all the dataset collected with strip_H5_to_dataset() function
+    end_list = [ds for ds in end_list if ds is not None]
+
+    attrs_coords = {}
+    attrs_val = {}
+    for ds in end_list:
+        
+    
+    final = xr.merge(end_list, join= 'outer', compat='no_conflicts', combine_attrs='drop_conflicts') # Merging of all the dataset collected with strip_H5_to_dataset() function
 
 
     print('==============================\n SUCCESS IMPORTING DATASET ')
@@ -216,6 +210,7 @@ class SIMHigh5():
         self.name = name
         self.models = self.df.coords['model'].values
         self.conds = self.df.coords['condition'].values
+        self.metadata = {}
 
     def selection(self, sel_dict):
         '''
@@ -229,7 +224,7 @@ class SIMHigh5():
         Returns a panda DataFrame and the metadata dict of a SIMA run, according to the dict_coords {model: mmmmm , condition:ccccc, analysis: aaaaa} triplet.
         '''
         run = self.df.sel(dict_coords)
-        var = run[list(run.data_vars)[0]].attrs
+        var = parse_variables(run[list(run.data_vars)[0]])
         run = run.to_pandas()
         if show:
             print('\n----------Successfully extracted run to panda.Dataframe structure-----------\n')
