@@ -15,10 +15,25 @@ def ensure_list(ds,coord):
         return [str(val)]
     
 def drop_constant_vars(ds: xr.Dataset) -> xr.Dataset:
-    varying_vars = [
-        var for var in ds.data_vars
-        if np.unique(ds[var].values).size > 1
-    ]
+    """Drop variables that have constant values across all dimensions."""
+    varying_vars = []
+    for var in ds.data_vars:
+        values = ds[var].values
+        try:
+            # Handle different types appropriately
+            if values.dtype == np.dtype('O') or values.dtype.kind == 'S' or values.dtype.kind == 'U':
+                # For object, string or unicode arrays
+                n_unique = len(set(values.flatten()))
+            else:
+                # For numeric arrays
+                n_unique = np.unique(values).size
+            
+            if n_unique > 1:
+                varying_vars.append(var)
+        except TypeError:
+            # If we can't determine uniqueness, keep the variable
+            varying_vars.append(var)
+            
     return ds[varying_vars]
 
 def strip_H5_to_dataset(every_analysis_output_dict, end_list, last_lvl, lvl_h5_dataset):
