@@ -8,6 +8,9 @@ from analysis_tools import *
 # import functions
 #------------------------------------------
 def ensure_list(ds,coord):
+    '''
+    Ensures that when coordinates are extracted, it results in a list.
+    '''
     val = ds.coords[coord].values
     if val.size > 1:
         return list(val)
@@ -15,7 +18,9 @@ def ensure_list(ds,coord):
         return [str(val)]
     
 def drop_constant_vars(ds: xr.Dataset) -> xr.Dataset:
-    """Drop variables that have constant values across all dimensions."""
+    '''
+    Drop variables that have constant values across all dimensions.
+    '''
     varying_vars = []
     for var in ds.data_vars:
         values = ds[var].values
@@ -46,6 +51,7 @@ def strip_H5_to_dataset(every_analysis_output_dict, end_list, last_lvl, lvl_h5_d
         * end_list                      : a list that contains the data we are collecting
         * last_lvl                      : three element list containing the keys to the last three level of the h5 dataset we have dived in
         * lvl_h5_dataset                : the h5 dataset at the current level
+        * debug                         : flag allowing printing of relevant logs
     OUTPUT
         * ds (or None)                  : a xarray.Dataset with dimensions [model, condition, analysis, time] containing different xarray.Datarrays representing the different output we asked
     '''
@@ -87,7 +93,7 @@ def strip_H5_to_dataset(every_analysis_output_dict, end_list, last_lvl, lvl_h5_d
                     test = lvl_h5_dataset[analysis][path] 
                 except :
                     if debug:
-                        print("No ", output, " found for condition ", last_lvl[-1], 'on model ', last_lvl[0], 'with analysis ', analysis, '.')
+                        print("No ", output, " found for condition ", last_lvl[-1], 'on model ', last_lvl[0], 'with analysis ', analysis, '.') # Message telling whether the recquired output is present in the dataset for the specified [model, condition, analysis]
                 else : 
                     series = lvl_h5_dataset[analysis][path]
                     # Constructing time from serie
@@ -174,23 +180,24 @@ def dataset_from_h5(h5_file, keys_dict, debug):
     Initialize the strip_H5_to_dataset() function.
     Takes a path to h5 file and a dictionary {sima_path:output_renaming} and returns an xarray.Dataset with dimensions [model, condition, analysis, time].
     '''
+    # Retrieving data from H5 file and putting it into DATA list of xr.Dataset
     end_list = []
     h5_dataset = h5py.File(h5_file)
     lvls = [list(h5_dataset.keys())[0]]*3
 
     strip_H5_to_dataset(keys_dict,end_list, lvls, h5_dataset, debug)
 
-    end_list = [ds for ds in end_list if ds is not None]
+    end_list = [ds for ds in end_list if ds is not None] # Suppression of none values
+
+    # Building METADATA datasets, with dims [model, condition] same than the DATA datasets, and putting them into list
     attrs_list = []
     for ds in end_list:
-        # name = attrs_coords['model'][0] + '_' + attrs_coords['condition'][0]
         attrs_dict = {}
         attrs_coords = {
         'model':[],
         'condition':[]
         }
         coords_da = {}
-        # n_analysis = len(list(ds.coords['analysis'].values))
         for key, coord in ds.coords.items():
             if (key not in ['time', 'analysis']):
                 attrs_coords[key] = attrs_coords[key] + list(coord.values)
@@ -207,7 +214,8 @@ def dataset_from_h5(h5_file, keys_dict, debug):
                 coords=attrs_coords
             )
         )
-        
+    
+    # Merging the datasets into one DATA dataset and one METADATA dataset
     metadata = xr.merge(attrs_list, join= 'outer', compat='no_conflicts')
     final = xr.merge(end_list, join= 'outer', compat='no_conflicts', combine_attrs='drop') # Merging of all the dataset collected with strip_H5_to_dataset() function
 
@@ -379,6 +387,7 @@ def merge_simh5(list_of_H5DF):
         '''
         Merges simh5 datasets. Returns a new class instance with merged dataset for the data and the metadata.
         '''
+        #TODO have also the time merged and interpolated.
         df_merged = xr.merge([H.df for H in list_of_H5DF], join= 'outer', compat='no_conflicts', combine_attrs='drop')
         metadata_merged = xr.merge([H.metadata for H in list_of_H5DF], join= 'outer', compat='no_conflicts', combine_attrs='drop')
         

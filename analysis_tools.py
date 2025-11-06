@@ -1,7 +1,6 @@
 import numpy as np
 import scipy.signal as sg
 import matplotlib.pyplot as plt
-import h5py
 
 def PQ_analysis(x_pks):
     dphi = -np.diff(x_pks)
@@ -31,13 +30,6 @@ def circular_matrix(x):
     m = np.transpose(mat)
     return(m)
 
-# example = np.array([1, 2, 3, 2, 3, 4])
-# print(circular_perm(example, 2))
-# print(circular_perm(example, -2))
-# print(circular_perm(example, len(example)))
-# print(circular_perm(example, 0))
-# print(circular_matrix(example))
-
 def discrete_autocorrelation(x):
     n = len(x)
     Rxx_tau = np.zeros(2 * n - 1)
@@ -49,13 +41,6 @@ def discrete_autocorrelation(x):
 def mat_autocorrelation(x):
     m = circular_matrix(x)
     return(np.dot(m,x)/len(x))
-
-# print(example * example)
-# lnsp = np.linspace(0, 4, 1000)
-# X = np.linspace(-lnsp[-1], lnsp[-1], 2*len(lnsp)-1)
-# example2 = np.sin(lnsp*2*np.pi)
-# plt.plot(X, discrete_autocorrelation(example2))
-# plt.plot(lnsp, mat_autocorrelation(example2))
 
 def FFT(timeserie,dt):
     N = len(timeserie)
@@ -70,13 +55,6 @@ def filt_FFT(timeserie, dt):
     f,s = FFT(timeserie, dt)
     s = bw_filter(s, cutoff=1/dt*2, fs=1/(f[1]-f[0]), order=2, switch='low')
     return f,s
-
-# Z = np.linspace(0,np.pi*20,100000)
-# sinewave = 12 * np.sin(2*np.pi*Z) + 3 * np.sin(100*2*np.pi*Z)
-# ds = Z[1]-Z[0]
-# F,S = FFT(sinewave,ds)
-
-# plt.plot(F,S)
 
 def PSD_wave(timeserie, dt):
     Rxx_tau = discrete_autocorrelation(timeserie)
@@ -157,6 +135,5 @@ def compare_decay_tests(H_data, outputs, focus ,colors={},styles={},labels={},fi
     for axis in ax.flatten('F'):
         axis.grid()
         axis.legend(loc='upper right', fontsize='small')
-    # fig.legend(legend_labels, loc='upper center', fontsize='small',ncols=len(legend_labels), bbox_to_anchor=(0.5, 1.05))
     fig.tight_layout()
     return fig, ax, res
