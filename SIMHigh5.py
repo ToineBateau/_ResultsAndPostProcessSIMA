@@ -36,7 +36,7 @@ def drop_constant_vars(ds: xr.Dataset) -> xr.Dataset:
             
     return ds[varying_vars]
 
-def strip_H5_to_dataset(every_analysis_output_dict, end_list, last_lvl, lvl_h5_dataset):
+def strip_H5_to_dataset(every_analysis_output_dict, end_list, last_lvl, lvl_h5_dataset, debug):
     '''
     Get recursively the structure and data of an exported .h5 SIMA simulation file, and put it nicely in a xarray structure with dimensions [model, condition, analysis, time].
     If the recquired output are not present for some of the model, conditions or analysis of the SIMA run, it is avoided. 
@@ -57,7 +57,7 @@ def strip_H5_to_dataset(every_analysis_output_dict, end_list, last_lvl, lvl_h5_d
         for key in keys:
             if key != "Variables":
                 last_lvl[-1] = key # Updating with a fresh level
-                res.append(strip_H5_to_dataset(every_analysis_output_dict, end_list, last_lvl, lvl_h5_dataset[key])) # Recursively running the function to delve deeper in the h5 dataset and getting the results in "res" list
+                res.append(strip_H5_to_dataset(every_analysis_output_dict, end_list, last_lvl, lvl_h5_dataset[key], debug)) # Recursively running the function to delve deeper in the h5 dataset and getting the results in "res" list
         if len(res) > 0: 
             end_list.extend(res) # In case we got some datas, list isn't empty and the "end_list" gets extended
         return None # The functions returns itself no data
@@ -86,7 +86,8 @@ def strip_H5_to_dataset(every_analysis_output_dict, end_list, last_lvl, lvl_h5_d
                 try:
                     test = lvl_h5_dataset[analysis][path] 
                 except :
-                    print("No ", output, " found for condition ", last_lvl[-1], 'on model ', last_lvl[0], 'with analysis ', analysis, '.')
+                    if debug:
+                        print("No ", output, " found for condition ", last_lvl[-1], 'on model ', last_lvl[0], 'with analysis ', analysis, '.')
                 else : 
                     series = lvl_h5_dataset[analysis][path]
                     # Constructing time from serie
@@ -168,7 +169,7 @@ def strip_H5_to_dataset(every_analysis_output_dict, end_list, last_lvl, lvl_h5_d
         # Returning the dataset
         return(dset)
 
-def dataset_from_h5(h5_file, keys_dict):
+def dataset_from_h5(h5_file, keys_dict, debug):
     '''
     Initialize the strip_H5_to_dataset() function.
     Takes a path to h5 file and a dictionary {sima_path:output_renaming} and returns an xarray.Dataset with dimensions [model, condition, analysis, time].
@@ -177,7 +178,7 @@ def dataset_from_h5(h5_file, keys_dict):
     h5_dataset = h5py.File(h5_file)
     lvls = [list(h5_dataset.keys())[0]]*3
 
-    strip_H5_to_dataset(keys_dict,end_list, lvls, h5_dataset)
+    strip_H5_to_dataset(keys_dict,end_list, lvls, h5_dataset, debug)
 
     end_list = [ds for ds in end_list if ds is not None]
     attrs_list = []
@@ -243,7 +244,7 @@ def xr_selection(df, sel_dict):
 
 class SIMHigh5():
     # Initializing the class can be done by a filename, a xarray dataset or a class instance
-    def __init__(self, h5_data, keys_dict, source = "file", name="NewDataset", metadata=None, silent = True):
+    def __init__(self, h5_data, keys_dict, source = "file", name="NewDataset", metadata=None, silent = True, debug = True):
         '''
         SIMHigh5 is an xarray wrapper for SIMA run data loaded under h5 format. 
         Main feature is every-SIMA_workflow adaptative load function that can delve recursively into every h5 SIMA datafile and returns it into easier and understandable format.
@@ -251,7 +252,7 @@ class SIMHigh5():
         '''
         self.dims = ['model', 'condition', 'analysis', 'variables', 'time']
         if source == "file":
-            self.df, self.metadata = dataset_from_h5(h5_data, keys_dict)
+            self.df, self.metadata = dataset_from_h5(h5_data, keys_dict, debug)
         elif source == "SIMHigh5":
             self.df = h5_data.df
             self.metadata = h5_data.metadata
