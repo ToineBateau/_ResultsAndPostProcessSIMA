@@ -2,6 +2,7 @@ import xarray as xr
 import numpy as np
 import pandas as pd
 import h5py
+import h5netcdf as hnc
 from analysis_tools import *
 
 
@@ -252,23 +253,23 @@ def xr_selection(df, sel_dict):
 
 class SIMHigh5():
     # Initializing the class can be done by a filename, a xarray dataset or a class instance
-    def __init__(self, h5_data, keys_dict, source = "file", name="NewDataset", metadata=None, silent = True, debug = True):
+    def __init__(self, data, keys_dict, source = "file", name="NewDataset", metadata=None, silent = True, debug = True):
         '''
         SIMHigh5 is an xarray wrapper for SIMA run data loaded under h5 format. 
         Main feature is every-SIMA_workflow adaptative load function that can delve recursively into every h5 SIMA datafile and returns it into easier and understandable format.
         It comes with numerous methods to process the data.
         '''
-        self.dims = ['model', 'condition', 'analysis', 'variables', 'time']
+        self.dims = ['model', 'condition', 'analysis', 'time']
         if source == "file":
-            self.df, self.metadata = dataset_from_h5(h5_data, keys_dict, debug)
+            self.df, self.metadata = dataset_from_h5(data, keys_dict, debug)
         elif source == "SIMHigh5":
-            self.df = h5_data.df
-            self.metadata = h5_data.metadata
+            self.df = data.df
+            self.metadata = data.metadata
         elif source == "xarray":
-            self.df = h5_data
+            self.df = data
             self.metadata = metadata
-        self.name = name
 
+        self.name = name
         self.models = ensure_list(self.df, 'model')
         self.conds = ensure_list(self.df, 'condition')
 
@@ -382,6 +383,125 @@ class SIMHigh5():
         ax.set_ylabel(output)
         ax.set_xlabel('Time (s)')
         return None
+    
+    def comparePlot_spectral(self, dim_in_legend,  dict_other_fixed_coord, output, 
+        dict_coord_colors = {},
+        dict_coord_legend = {},
+        freq_bands = {
+            'mean': (0, 0.01),
+            'low': (0.01, 0.05),
+            'wave': (0.05, 0.2),
+            'high': (0.2, 1.0)
+        }
+        ):
+        '''
+        # TODO
+        '''
+        legend = []
+        coords = ensure_list(self.df, dim_in_legend)
+        psd_data = {}
+        
+        # Create figure with special GridSpec layout
+        fig = plt.figure(figsize=(12, 8), dpi=600)
+        gs = plt.GridSpec(2, 2, height_ratios=[1, 1])
+        
+        # Create subplots with specific positions
+        ax1 = fig.add_subplot(gs[0, 0])  # Top left
+        ax2 = fig.add_subplot(gs[0, 1])  # Top right
+        ax3 = fig.add_subplot(gs[1, :])  # Bottom full width
+        for coord in coords:
+            dict_coords = {dim_in_legend:coord}
+            dict_coords.update(dict_other_fixed_coord)
+            t, serie = self.timeserie(dict_coords, output, show = False)
+            dt = t[1]-t[0]
+            f, Sp = PSD_wave4(serie.values, dt)
+            psd_data[coord] = (f, Sp)
+           
+
+
+            if bool(dict_coord_colors):
+                # Plot linear and log PSD
+                ax1.plot(f, Sp, color=dict_coord_colors[coord])
+                ax2.semilogy(f, Sp, color=dict_coord_colors[coord])
+            else:
+                # Plot linear and log PSD
+                ax1.plot(f, Sp)
+                ax2.semilogy(f, Sp)
+            if bool(dict_coord_legend):
+                legend.append(dict_coord_legend[coord])
+            else:
+                legend.append(coord)
+
+        # Configure linear PSD plot
+        ax1.set_xlabel('Frequency (Hz)')
+        ax1.set_ylabel('PSD of ' + output)
+        ax1.set_xlim(0.01, 1)
+        ax1.grid(True, alpha=0.2)
+        
+        # Configure log PSD plot
+        ax2.set_xlabel('Frequency (Hz)')
+        ax2.set_ylabel('logPSD of ' + output)
+        ax2.set_xlim(0.01, 1)
+        ax2.grid(True, alpha=0.2)
+
+        # Bar plot for frequency bands
+        n_conditions = len(coords)
+
+        for band_idx, (band_name, (f_min, f_max)) in enumerate(freq_bands.items()):
+            width = f_max - f_min
+            center = f_min + width/2
+            
+            for cond_idx, cond in enumerate(coords):
+                f, Sp = psd_data[cond]
+                
+                # Calculate normalized power in this band
+                mask = (f >= f_min) & (f <= f_max)
+                power_in_band = np.trapezoid(Sp[mask], f[mask])
+                total_power = np.trapezoid(Sp, f)
+                normalized_power = (power_in_band / total_power) * 100
+                
+                # Calculate position for this condition's bar
+                bar_width = width / (n_conditions + 1)  # Leave some space between frequency bands
+                bar_center = center + (cond_idx - (n_conditions-1)/2) * bar_width
+                
+                if bool(dict_coord_colors):
+                    ax3.bar(bar_center, normalized_power,
+                        width=bar_width,
+                        color=dict_coord_colors[cond],
+                        label=cond if band_idx == 0 else "")
+                else:
+                    ax3.bar(bar_center, normalized_power,
+                        width=bar_width,
+                        label=cond if band_idx == 0 else "")
+        
+        # Configure frequency band plot
+        ax3.set_xlabel('Frequency (Hz)')
+        ax3.set_ylabel('% PSD of ' + output)
+        ax3.set_xscale('log')
+
+        band_centers = []
+        for band_name, (f_min, f_max) in freq_bands.items():
+            width = f_max - f_min
+            center = f_min + width/2
+            band_centers.append(center)
+
+        ax3.set_xticks(band_centers)
+        ax3.set_xticklabels([key + '\n' + str(item) for key, item in freq_bands.items()])
+
+        # Optional: rotate labels if they overlap
+        plt.setp(ax3.get_xticklabels(), rotation=45, ha='right')
+
+
+        fig.legend(legend, ncol=2, loc='upper center', bbox_to_anchor=(0.5, 1.1))
+        
+        plt.tight_layout()
+
+        return fig, [ax1, ax2, ax3]
+
+
+    
+
+        
     
 def merge_simh5(list_of_H5DF):
         '''
